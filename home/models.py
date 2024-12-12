@@ -11,11 +11,12 @@ from django.contrib.auth.base_user import AbstractBaseUser
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from tinymce.models import HTMLField
-from django.contrib.auth.models import User 
+
+
 from django.db import models
 from django.utils import timezone
-
-
+from datetime import timedelta
+from django.utils.timezone import now
 from django.utils.text import slugify
 
 import secrets
@@ -27,6 +28,18 @@ from django.db import models
 
 import nh3
 
+class APIModel(models.Model):
+    name = models.CharField(max_length=255)
+    field_name = models.CharField(max_length=255, default="Default Value")
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+   
+    def __str__(self):
+        return self.field_name
+    
 class User(AbstractBaseUser, PermissionsMixin):
     """
     A User model with admin-compliant permissions.
@@ -49,8 +62,15 @@ class User(AbstractBaseUser, PermissionsMixin):
             "Unselect this instead of deleting accounts."
         ),
     )
+    is_verified = models.BooleanField(
+        _("verified"),
+        default=False,
+        help_text=_("Designates whether the user has verified their account."),
+    )
     created_at = models.DateTimeField(_("created_at"), auto_now_add=True)
     updated_at = models.DateTimeField(_("updated_at"), auto_now=True)
+    
+    last_activity = models.DateTimeField(null=True, blank=True, default=now)
 
     EMAIL_FIELD = "email"
     USERNAME_FIELD = "email"
@@ -82,6 +102,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     def email_user(self, subject, message, from_email=None, **kwargs):
         """Send an email to this user."""
         send_mail(subject, message, from_email, [self.email], **kwargs)
+    def activate_user(self):
+        """ Mark the user as verified and active."""
+        self.is_verified = True
+        self.is_active = True
+        self.save()
+        print(f"User {self.email} has been activated and verified.")
+
 
 #Search Bar Models:
 
@@ -386,6 +413,29 @@ class SecurityEvent(models.Model):
     def __str__(self):
         return f"{self.event_type} - {self.user or 'Unknown user'} - {self.timestamp}"
 
+
+class ExampleModel(models.Model):
+    name = models.CharField(max_length=255)  
+    updated_at = models.DateTimeField(auto_now=True)  # Automatically updates the timestamp on save
+
+    def __str__(self):
+      
+        feedback_type_display = self.get_feedback_type_display()
+        return f"{feedback_type_display} - {self.created_at}"
+    
+
+class ContactSubmission(models.Model):
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    email = models.EmailField()
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} ({self.email})"
+
+        return self.name
+
 class Job(models.Model):
     title = models.CharField(max_length=200)
     description = HTMLField()
@@ -405,9 +455,20 @@ class JobApplication(models.Model):
     cover_letter = models.TextField()
     applied_date = models.DateTimeField(auto_now_add=True)
 
+
     def __str__(self):
         return f"{self.name} - {self.job.title}"
 
+#Leaderboard
+class LeaderBoardTable(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    category = models.CharField(max_length=200)
+    total_points = models.IntegerField(default=0)
+    
+
+
+    def __str__(self):
+        return f"{self.user.first_name} {self.user.last_name} ({self.category}) - {self.total_points} POINTS"
 class Experience(models.Model):
     name = models.CharField(max_length=100)
     feedback = models.TextField()
@@ -415,3 +476,4 @@ class Experience(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.feedback[:50]}"
+

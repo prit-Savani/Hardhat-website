@@ -4,6 +4,7 @@ import re
 from django.core.exceptions import ValidationError
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm, PasswordChangeForm, PasswordResetForm, SetPasswordForm, UsernameField
 from django.contrib.auth import get_user_model
+from captcha.fields import CaptchaField
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from django.core.exceptions import ValidationError
@@ -26,6 +27,29 @@ def possible_years(first_year_in_scroll, last_year_in_scroll):
         p_year_tuple = str(i), i
         p_year.append(p_year_tuple)
     return p_year
+class Meta:
+        model = User
+        fields = ('first_name', 'last_name', 'email', )
+
+        labels = {
+            'first_name': _('First Name'),
+            'last_name': _('Last Name'),
+            'email': _('Deakin Email Address'),
+        }
+        widgets = {
+            'first_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'First Name'
+            }),
+            'last_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Last Name'
+            }),
+            'email': forms.EmailInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'example@deakin.edu.au'
+            })
+        }
 
 class RegistrationForm(UserCreationForm):
     # Newly added...........................
@@ -51,7 +75,7 @@ class RegistrationForm(UserCreationForm):
         
         if not re.match(pattern, password):
             raise ValidationError(
-                _("Password must be at least 8 characters long and include uppercase, lawercase letters, numbers and special characters.")
+                _("Password must be at least 8 characters long and include uppercase, lowercase letters, numbers, and special characters.")
             )
         return password
     # ...........................................................
@@ -70,13 +94,6 @@ class RegistrationForm(UserCreationForm):
 
         print(f"Validation succeeded for email: {email}")  # Debug log for success
         return email
-
-
-
-
-
-    # .......................................
-
 
     class Meta:
         model = User
@@ -101,6 +118,88 @@ class RegistrationForm(UserCreationForm):
                 'placeholder': 'example@deakin.edu.au'
             })
         }
+
+
+
+    # .......................................
+
+    def save(self, commit=True):
+        """
+        Overrides the save method to ensure the user instance is saved correctly.
+        """
+        user = super().save(commit=False)
+        if commit:
+            user.save()
+        return user
+    
+    class Meta:
+        model = User
+        fields = ('first_name', 'last_name', 'email', )
+        labels = {
+            'first_name': _('First Name'),
+            'last_name': _('Last Name'),
+            'email': _('Deakin Email Address'),
+        }
+        widgets = {
+            'first_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'First Name'
+            }),
+            'last_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Last Name'
+            }),
+            'email': forms.EmailInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'example@deakin.edu.au'
+            })
+        }
+
+class ClientRegistrationForm(UserCreationForm):
+    # Newly added...........................
+    email = forms.EmailField(
+        label=_("Business Email"),
+        widget=forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'Email'}),
+    )
+    # .......................................
+
+    business_name = forms.CharField(
+        label=_("Business Name"),
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Business Name'}),
+    )
+
+    password1 = forms.CharField(
+        label=_("Your Password"),
+        widget=forms.PasswordInput(attrs={'class': 'form-control', 'placeholder': 'Password'}),
+    )
+    password2 = forms.CharField(
+        label=_("Confirm Password"),
+        widget=forms.PasswordInput(attrs={'class': 'form-control', 'placeholder': 'Confirm Password'}),
+    )
+    # Newly added................................................
+    def clean_password1(self):
+        password = self.cleaned_data.get('password1')
+        # Define the regex pattern for the required password format
+        pattern = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$'
+        
+        if not re.match(pattern, password):
+            raise ValidationError(
+                _("Password must be at least 8 characters long and include uppercase, lawercase letters, numbers and special characters.")
+            )
+        return password
+    # ...........................................................
+
+    # Newly added...........................
+    def clean_email(self):
+        email = self.cleaned_data.get('email')
+        # Define the regex pattern for the required email format
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        
+        if not re.match(pattern, email):
+            raise ValidationError(_("Email must be valid email."))
+        
+        return email
+    # .......................................
 
 class UserLoginForm(AuthenticationForm):
     username = UsernameField(
@@ -158,6 +257,41 @@ class UserLoginForm(AuthenticationForm):
             code='too_many_attempts',
             )
 
+        ip_address = self.request.META.get('REMOTE_ADDR') if self.request else 'Unknown IP'
+        SecurityEvent.objects.create(
+            user=None,  # No user as login failed
+            event_type='login_failure',
+            ip_address=ip_address,
+            details=f'Failed login attempt for username: {self.cleaned_data.get("username", "Unknown")}'
+        )
+        print(f'Failed login attempt for username: {self.cleaned_data.get("username", "Unknown")}')
+        return super().get_invalid_login_error()
+
+class ClientLoginForm(AuthenticationForm):
+    username = UsernameField(label='Client Email Address',widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "example@gmail.com"}))
+    password = forms.CharField(
+            label=_("Password"),
+            strip=False,
+            widget=forms.PasswordInput(attrs={"class": "form-control", "placeholder": "Password"}),
+        )
+    def __init__(self, request=None, *args, **kwargs):
+        super().__init__(request, *args, **kwargs)
+        self.request = request
+
+    def confirm_login_allowed(self, user):
+        super().confirm_login_allowed(user)
+        # Log successful login event
+        ip_address = self.request.META.get('REMOTE_ADDR') if self.request else 'Unknown IP'
+        SecurityEvent.objects.create(
+            user=user,
+            event_type='login_success',
+            ip_address=ip_address,
+            details='User logged in successfully.'
+        )
+        print(f'User {user} logged in successfully.')
+
+    def get_invalid_login_error(self):
+        # Log failed login event
         ip_address = self.request.META.get('REMOTE_ADDR') if self.request else 'Unknown IP'
         SecurityEvent.objects.create(
             user=None,  # No user as login failed
@@ -308,6 +442,9 @@ class ProfileUpdateForm(forms.ModelForm):
     class Meta:
         model = Profile
         fields = ['avatar', 'bio']
+
+class CaptchaForm(forms.Form):
+    captcha = CaptchaField()
         
 
 class ExperienceForm(ModelForm):
